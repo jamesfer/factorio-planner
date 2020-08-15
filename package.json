@@ -1,0 +1,18 @@
+{
+  "name": "factorio-planner",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@types/lodash": "^4.14.157",
+    "@types/node": "^14.0.23",
+    "@types/yargs": "^15.0.5",
+    "chalk": "^4.1.0",
+    "commander": "^6.0.0",
+    "lodash": "^4.17.19",
+    "sigma": "^2.0.0-alpha32",
+    "ts-node": "^8.10.2",
+    "typescript": "^3.9.6",
+    "yargs": "^15.4.1"
+  }
+}

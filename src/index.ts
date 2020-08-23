@@ -272,7 +272,7 @@ function displayRawRequirements(setup: ProductionLineSetup, displaySources: Reci
   // const maxNameLength = maxBy(Object.keys(rawMaterials), 'length');
   // const maxCountLength = maxBy(Object.values(rawMaterials), value => value.toString().length + 2)
 
-  const tableData = map(rawMaterials, (amount, name) => [name, `${Math.ceil(amount * 60)}/m`, displayBeltCapacity(amount)]);
+  const tableData = map(rawMaterials, (amount, name) => [name, `${Math.ceil(amount)}/s`, displayBeltCapacity(amount)]);
   return displayInTable(tableData);
   // return map(rawMaterials, (amount, name) => `  ${name}: ${Math.ceil(amount * 60)}/m`).join('\n');
 }
@@ -519,22 +519,22 @@ function main() {
           })
           .option('labSpeed', {
             string: true,
-            default: 1,
+            default: coerceLabSpeed('max'),
             coerce: coerceLabSpeed,
           })
           .option('mineSpeed', {
             string: true,
-            default: 1,
+            default: coerceMineSpeed('max'),
             coerce: coerceMineSpeed,
           })
           .option('assemblerSpeed', {
             string: true,
-            default: 1,
+            default: coerceAssemblerSpeed('max'),
             coerce: coerceAssemblerSpeed,
           })
           .option('furnaceSpeed', {
             string: true,
-            default: 1,
+            default: coerceFurnaceSpeed('max'),
             coerce: coerceFurnaceSpeed,
           })
           .option('displayDependencyData', {

@@ -127,6 +127,28 @@ const recipes: Recipe[] = [
     ],
   },
   {
+    name: 'Speed Module 3',
+    time: 60,
+    yield: 1,
+    source: 'assembler',
+    requirements: [
+      { name: 'Red Circuit', amount: 5 },
+      { name: 'Blue Circuit', amount: 5 },
+      { name: 'Speed Module 2', amount: 5 },
+    ],
+  },
+  {
+    name: 'Speed Module 2',
+    time: 30,
+    yield: 1,
+    source: 'assembler',
+    requirements: [
+      { name: 'Red Circuit', amount: 5 },
+      { name: 'Blue Circuit', amount: 5 },
+      { name: 'Speed Module', amount: 4 },
+    ],
+  },
+  {
     name: 'Speed Module',
     time: 15,
     yield: 1,

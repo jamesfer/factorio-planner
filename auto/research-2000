@@ -1,0 +1,15 @@
+#!/bin/bash -eu
+
+cd "$(dirname "$0")/.."
+
+yarn ts-node src/index.ts \
+  d 'Research' \
+  -q 10000/m \
+  --display-furnaces \
+  --display-labs \
+  --display-mines \
+  --mine-speed electric,3speedMod,4speedMod \
+  --furnace-speed electric,2prodMod,8speedMod \
+  --assembler-speed yellow,2prodMod \
+  --lab-speed max,2prodMod \
+  "$@"

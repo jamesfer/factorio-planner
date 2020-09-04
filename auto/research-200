@@ -1,0 +1,11 @@
+#!/bin/bash -eu
+
+cd "$(dirname "$0")/.."
+
+yarn ts-node src/index.ts \
+  d 'Research' \
+  -q 200/m \
+  --display-furnaces \
+  --display-labs \
+  --display-mines \
+  "$@"

@@ -41,15 +41,6 @@ const recipes: Recipe[] = [
     ],
   },
   {
-    name: 'Research White Science',
-    time: 30,
-    yield: 1,
-    source: 'lab',
-    requirements: [
-      { name: 'White Science', amount: 1 },
-    ],
-  },
-  {
     name: 'White Science',
     time: 30,
     yield: 1000,
@@ -159,15 +150,6 @@ const recipes: Recipe[] = [
     ],
   },
   {
-    name: 'Research Orange Science',
-    time: 30,
-    yield: 1,
-    source: 'lab',
-    requirements: [
-      { name: 'Orange Science', amount: 1 },
-    ],
-  },
-  {
     name: 'Orange Science',
     time: 21,
     yield: 3,
@@ -247,15 +229,6 @@ const recipes: Recipe[] = [
     ],
   },
   {
-    name: 'Research Purple Science',
-    time: 30,
-    yield: 1,
-    source: 'lab',
-    requirements: [
-      { name: 'Purple Science', amount: 1 },
-    ],
-  },
-  {
     name: 'Purple Science',
     time: 21,
     yield: 3,
@@ -308,15 +281,6 @@ const recipes: Recipe[] = [
     ],
   },
   {
-    name: 'Research Blue Science',
-    time: 30,
-    yield: 1,
-    source: 'lab',
-    requirements: [
-      { name: 'Blue Science', amount: 1 },
-    ],
-  },
-  {
     name: 'Blue Science',
     time: 24,
     yield: 2,
@@ -328,15 +292,6 @@ const recipes: Recipe[] = [
     ],
   },
   {
-    name: 'Research Green Science',
-    time: 30,
-    yield: 1,
-    source: 'lab',
-    requirements: [
-      { name: 'Green Science', amount: 1 },
-    ],
-  },
-  {
     name: 'Green Science',
     time: 6,
     yield: 1,
@@ -344,15 +299,6 @@ const recipes: Recipe[] = [
     requirements: [
       { name: 'Transport Belt', amount: 1 },
       { name: 'Inserter', amount: 1 },
-    ],
-  },
-  {
-    name: 'Research Red Science',
-    time: 30,
-    yield: 1,
-    source: 'lab',
-    requirements: [
-      { name: 'Red Science', amount: 1 },
     ],
   },
   {
@@ -559,15 +505,6 @@ const recipes: Recipe[] = [
       { name: 'Cog', amount: 10 },
       { name: 'Iron', amount: 20 },
       { name: 'Copper', amount: 10 },
-    ],
-  },
-  {
-    name: 'Research Black Science',
-    time: 30,
-    yield: 1,
-    source: 'lab',
-    requirements: [
-      { name: 'Black Science', amount: 1 },
     ],
   },
   {

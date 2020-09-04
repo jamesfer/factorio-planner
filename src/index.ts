@@ -13,6 +13,7 @@ import {
   range,
   sum,
   uniqBy,
+  sumBy,
 } from 'lodash';
 import * as yargs from 'yargs';
 import {
@@ -20,7 +21,7 @@ import {
   coerceFurnaceSpeed,
   coerceLabSpeed,
   coerceMineSpeed,
-  coerceQuantity,
+  coerceQuantity, SpeedMultiplier,
 } from './cli/coercions';
 import { createDependencyTree } from './dependencies/createDependencyTree';
 import { findAvailableDependents } from './dependencies/findAvailableDependents';
@@ -48,37 +49,56 @@ export interface ProductionLineSetup {
 }
 
 interface ProductionSpeedMultipliers {
-  assembler: number;
-  mine: number;
-  lab: number;
-  pump: number;
-  chem: number;
-  furnace: number;
-  'rocket silo': number;
+  assembler: SpeedMultiplier;
+  mine: SpeedMultiplier;
+  lab: SpeedMultiplier;
+  pump: SpeedMultiplier;
+  chem: SpeedMultiplier;
+  furnace: SpeedMultiplier;
+  'rocket silo': SpeedMultiplier;
 }
 
-const DEFAULT_PRODUCTION_SPEEDS: ProductionSpeedMultipliers = {
-  assembler: 1,
-  mine: 1,
-  lab: 1,
-  pump: 1,
-  chem: 1,
-  furnace: 1,
-  'rocket silo': 1,
+const BASE_SPEED_MULTIPLIER: SpeedMultiplier = {
+  base: 1,
+  productionBonus: 0,
 };
 
-// const ASSEMBLER_SPEEDS = {
-//   'tier 1': 1,
-//   'tier 2': 2,
-//   'tier 3': 3,
-// };
-
-function getSpeedMultiplier(source: Recipe['source'], productionSpeeds: ProductionSpeedMultipliers): number {
+function getSpeedMultiplier(source: Recipe['source'], productionSpeeds: ProductionSpeedMultipliers): SpeedMultiplier {
   if (source === 'none') {
-    return 1;
+    return BASE_SPEED_MULTIPLIER;
   }
 
   return productionSpeeds[source];
+}
+
+function getBaseSpeedMultiplier(source: Recipe['source'], productionSpeeds: ProductionSpeedMultipliers): number {
+  return getSpeedMultiplier(source, productionSpeeds).base;
+}
+
+function getProductionSpeedMultiplier(source: Recipe['source'], productionSpeeds: ProductionSpeedMultipliers): number {
+  const multipliers = getSpeedMultiplier(source, productionSpeeds);
+  return multipliers.base + multipliers.productionBonus;
+}
+
+function calculateRequirementConsumed(recipe: Recipe, requirement: { name: string, amount: number }, productionSpeeds: ProductionSpeedMultipliers): number {
+  const speedMultiplier = getBaseSpeedMultiplier(recipe.source, productionSpeeds);
+  return requirement.amount / recipe.time * speedMultiplier;
+}
+
+function calculateRequirementConsumedInSetup(assembler: ProductionSetup, requirement: { name: string, amount: number }, productionSpeeds: ProductionSpeedMultipliers): number {
+  return assembler.efficiency * assembler.count * calculateRequirementConsumed(assembler.recipe, requirement, productionSpeeds);
+}
+
+function calculateProductionRate(recipe: Recipe, speeds: ProductionSpeedMultipliers) {
+  return recipe.yield * getProductionSpeedMultiplier(recipe.source, speeds) / recipe.time
+}
+
+function calculateTotalProductionRate(productionMachines: number, recipe: Recipe, speeds: ProductionSpeedMultipliers) {
+  return productionMachines * calculateProductionRate(recipe, speeds);
+}
+
+function calculateRequiredMachines(rate: number, recipe: Recipe, speeds: ProductionSpeedMultipliers): number {
+  return rate * recipe.time / recipe.yield / getProductionSpeedMultiplier(recipe.source, speeds);
 }
 
 function calculateProductionSetup(recipeName: string, productionLineSetup: ProductionLineSetup, productionSpeeds: ProductionSpeedMultipliers): ProductionSetup {
@@ -90,20 +110,18 @@ function calculateProductionSetup(recipeName: string, productionLineSetup: Produ
     if (!requirement) {
       return 0;
     }
-    const speedMultiplier = getSpeedMultiplier(assembler.recipe.source, productionSpeeds);
-    return assembler.efficiency * requirement.amount * assembler.count / assembler.recipe.time * speedMultiplier;
+    return calculateRequirementConsumedInSetup(assembler, requirement, productionSpeeds);
   }));
 
   // Determine the amount of producers of this recipe required to meet the demand
-  const speedMultiplier = getSpeedMultiplier(recipe.source, productionSpeeds);
-  const requiredProduction = totalAmountConsumed / (recipe.yield / recipe.time * speedMultiplier);
-  const requiredAssemblerCount = Math.ceil(requiredProduction);
-  const actualProduction = requiredAssemblerCount * recipe.yield / recipe.time * speedMultiplier;
+  const requiredProductionMachines = calculateRequiredMachines(totalAmountConsumed, recipe, productionSpeeds);
+  const requiredAssemblerCount = Math.ceil(requiredProductionMachines);
+  const actualProduction = requiredAssemblerCount * calculateProductionRate(recipe, productionSpeeds);
 
   return {
     recipe,
     count: requiredAssemblerCount,
-    efficiency: Math.min(1, requiredProduction / requiredAssemblerCount),
+    efficiency: Math.min(1, requiredProductionMachines / requiredAssemblerCount),
     consumed: totalAmountConsumed,
     produced: actualProduction,
   }
@@ -111,7 +129,7 @@ function calculateProductionSetup(recipeName: string, productionLineSetup: Produ
 
 function findSetupUsingDependencyTree(recipe: Recipe, rate: number, dependencyTree: DependencyTree, productionSpeeds: ProductionSpeedMultipliers): ProductionLineSetup {
   const machines = Math.ceil(calculateRequiredMachines(rate, recipe, productionSpeeds));
-  const produced = calculateRate(machines, recipe, productionSpeeds);
+  const produced = calculateTotalProductionRate(machines, recipe, productionSpeeds);
   const productionLineSetup: ProductionLineSetup = {
     [recipe.name]: {
       recipe,
@@ -181,9 +199,13 @@ function displaySetup(setup: ProductionLineSetup, source: Recipe['source'] = 'as
   const filteredSetup = pickBy(setup, assemblerSetup => assemblerSetup.recipe.source === source);
   const maxNameLength: number = maxBy(map(filteredSetup, 'recipe.name.length'));
   const maxCountLength: number = max(map(filteredSetup, assembler => assembler.count.toString().length));
-  return map(filteredSetup, (assembler, name) => {
+  const setupLines = map(filteredSetup, (assembler, name) => {
     return `${name.padStart(maxNameLength, ' ')}  ${assembler.count.toString().padEnd(maxCountLength, ' ')}  ${(assembler.efficiency * 100).toFixed(0)}% (${displayPossibleFraction(assembler.consumed)}/${displayPossibleFraction(assembler.produced)})`;
-  }).join('\n');
+  });
+  return [
+    ...setupLines,
+    `${'Total'.padEnd(maxNameLength, ' ')}  ${sumBy(Object.values(filteredSetup), 'count')}`,
+  ].join('\n');
 }
 
 function displayInTable(rows: string[][]): string {
@@ -218,7 +240,7 @@ function makeBeltIcon(capacity: number, items: number): string {
   }[Math.min(4, Math.ceil(items * 4 / capacity))];
 }
 
-function makeTrainIcon(itemsPerSecond) {
+function makeTrainIcon(itemsPerSecond: number) {
   const itemsPerMinute = itemsPerSecond * 60;
   const trains = Math.ceil(itemsPerMinute / (40 * 100));
   return `${trains} x 🚅/m`;
@@ -247,8 +269,7 @@ function displayRawRequirements(setup: ProductionLineSetup, displaySources: Reci
       forEach(recipe.requirements, (requirement) => {
         const requirementRecipe = findRecipe(requirement.name);
         if (!displaySources.includes(requirementRecipe.source)) {
-          const speedMultiplier = getSpeedMultiplier(recipe.source, productionSpeeds);
-          const amount = requirement.amount * assemblerSetup.count * assemblerSetup.efficiency / (recipe.time / speedMultiplier);
+          const amount = calculateRequirementConsumedInSetup(assemblerSetup, requirement, productionSpeeds);
           rawMaterials[requirement.name] = (rawMaterials[requirement.name] || 0) + amount;
         }
       });
@@ -275,14 +296,6 @@ function displayRawRequirements(setup: ProductionLineSetup, displaySources: Reci
   const tableData = map(rawMaterials, (amount, name) => [name, `${Math.ceil(amount)}/s`, displayBeltCapacity(amount)]);
   return displayInTable(tableData);
   // return map(rawMaterials, (amount, name) => `  ${name}: ${Math.ceil(amount * 60)}/m`).join('\n');
-}
-
-function calculateRate(productionMachines: number, recipe: Recipe, speeds: ProductionSpeedMultipliers) {
-  return productionMachines * recipe.yield * getSpeedMultiplier(recipe.source, speeds) / recipe.time;
-}
-
-function calculateRequiredMachines(rate: number, recipe: Recipe, speeds: ProductionSpeedMultipliers) {
-  return rate * recipe.time / recipe.yield / getSpeedMultiplier(recipe.source, speeds);
 }
 
 function displayDependencyData(recipe: Recipe, sources: Recipe['source'][]) {
@@ -322,23 +335,29 @@ function displayAssemblerIO(setup: ProductionSetup, speeds: ProductionSpeedMulti
   const messages: string[] = [];
   const recipe = setup.recipe;
 
-  const requirementsWithCount = map(recipe.requirements, requirement => ({
-    ...requirement,
-    materialCount: requirement.amount / recipe.time * getSpeedMultiplier(recipe.source, speeds),
-  }));
-  const highestRequiredMaterial = maxBy(requirementsWithCount, 'materialCount');
-  const maxAssemblers = Math.floor(45 / highestRequiredMaterial.materialCount);
+  const liquids = ['Petroleum', 'Water', 'Light Oil', 'Heavy Oil', 'Lubricant', 'Sulfuric Acid'];
+  const requirementsWithCount = [
+    { name: 'Products', rate: calculateProductionRate(recipe, speeds) },
+    ...map(recipe.requirements.filter(req => !liquids.includes(req.name)), requirement => ({
+      name: requirement.name,
+      rate: calculateRequirementConsumed(recipe, requirement, speeds),
+    })),
+  ];
+  const highestSupplyRate = maxBy(requirementsWithCount, 'rate');
+  const maxAssemblers = Math.floor(45 / highestSupplyRate.rate);
 
-  messages.push(`Max assemblers per row ${maxAssemblers} (${(setup.count / maxAssemblers).toFixed(1)})`);
+  messages.push(`Per row ${maxAssemblers} (${(setup.count / maxAssemblers).toFixed(1)}) constrained by ${highestSupplyRate.name}`);
 
-  requirementsWithCount.forEach((requirement) => {
-    const fastInserterCount = Math.ceil(requirement.materialCount / 6.43);
-    const stackInserterCount = Math.ceil(requirement.materialCount / 15);
-    if (fastInserterCount === 1) {
-      messages.push(`${requirement.name} ${displayBeltCapacity(requirement.materialCount * maxAssemblers)} ${fastInserterCount} x FI`);
-    } else {
-      messages.push(`${requirement.name} ${displayBeltCapacity(requirement.materialCount * maxAssemblers)} ${fastInserterCount} x FI ${stackInserterCount} x SI`);
-    }
+  requirementsWithCount.forEach(({ name, rate }) => {
+    const longInserterCount = Math.ceil(rate / 3.46);
+    const fastInserterCount = Math.ceil(rate / 6.43);
+    const stackInserterCount = Math.ceil(rate / 15);
+    const inserterDisplay = longInserterCount === 1 ? chalk.red('LI')
+      : fastInserterCount === 1 ? chalk.blue('FI')
+      : stackInserterCount === 1 ? chalk.green('SI')
+      : chalk.green(`${stackInserterCount}xSI`);
+    const beltCapacityDisplay = `${displayBeltCapacity(rate * maxAssemblers)} (${displayBeltCapacity(rate * setup.count)})`;
+    messages.push(`${name} ${inserterDisplay} ${beltCapacityDisplay}`);
   });
   return messages.join('\n');
 }
@@ -347,7 +366,7 @@ function displayIO(setup: ProductionLineSetup, displayedSources: Recipe['source'
   const messages: string[] = [];
   for (const name in setup) {
     if (setup[name].recipe.requirements.length > 0 && displayedSources.includes(setup[name].recipe.source)) {
-      messages.push(`  ${name}`);
+      messages.push(`  ${name} x${setup[name].count}`);
       messages.push(displayAssemblerIO(setup[name], speeds).split('\n').map(line => `    ${line}`).join('\n'));
     }
   }
@@ -358,117 +377,6 @@ function main() {
   const [command, ...args] = process.argv.slice(2);
 
   switch (command) {
-    // case 'csv': {
-    //   const recipeName = args[0];
-    //   if (!recipeName) {
-    //     throw new Error('No recipe provided');
-    //   }
-    //   const recipe = findRecipe(recipeName);
-    //
-    //   const count = args[1] === undefined ? 4 : +args[1];
-    //   if (Number.isNaN(count)) {
-    //     throw new Error(`Unknown count ${args[1]}`);
-    //   }
-    //
-    //   const setups = findSetups(recipe, count, DEFAULT_PRODUCTION_SPEEDS);
-    //   console.log(toCsv(recipeName, setups));
-    //   break;
-    // }
-    //
-    // case 'optimize': {
-    //   const recipeName = args[0];
-    //   if (!recipeName) {
-    //     throw new Error('No recipe provided');
-    //   }
-    //   const recipe = findRecipe(recipeName);
-    //
-    //   const count = args[1] === undefined ? 4 : +args[1];
-    //   if (Number.isNaN(count)) {
-    //     throw new Error(`Unknown count ${args[1]}`);
-    //   }
-    //
-    //   const { setup, efficiency } = findBestSetup(recipe, count, DEFAULT_PRODUCTION_SPEEDS);
-    //   console.log(displaySetup(setup));
-    //   console.log(`Overall efficiency:     ${(efficiency * 100).toFixed(0)}%`);
-    //   console.log(`Assemblers required:    ${sumBy(Object.values(setup), 'count')}`);
-    //   console.log();
-    //   console.log('Raw requirements per minute:');
-    //   console.log(displayRawRequirements(setup, ['none', 'chem', 'mine', 'furnace', 'pump'], recipe.name, DEFAULT_PRODUCTION_SPEEDS));
-    //   break;
-    // }
-    //
-    // case 'satisfy': {
-    //   const recipeName = args[0];
-    //   if (!recipeName) {
-    //     throw new Error('No recipe provided');
-    //   }
-    //   const recipe = findRecipe(recipeName);
-    //
-    //   const requirement = args[1] === undefined ? 4 : +args[1];
-    //   if (Number.isNaN(requirement)) {
-    //     throw new Error(`Unknown count ${args[1]}`);
-    //   }
-    //
-    //   const count = Math.ceil(requirement * recipe.time / recipe.yield);
-    //   const setup = findSetup(recipe, count, DEFAULT_PRODUCTION_SPEEDS);
-    //   console.log(displaySetup(setup));
-    //   console.log(`Overall efficiency:     ${(calculateTotalSetupEfficiency(setup) * 100).toFixed(0)}%`);
-    //   console.log(`Assemblers required:    ${sumBy(Object.values(setup), 'count')}`);
-    //   console.log();
-    //   console.log('Raw requirements per minute:');
-    //   console.log(displayRawRequirements(setup, ['none', 'chem', 'mine', 'furnace', 'pump'], recipe.name, DEFAULT_PRODUCTION_SPEEDS));
-    //   break;
-    // }
-    //
-    // case 'science': {
-    //   const minutes = +args[0];
-    //   if (Number.isNaN(minutes)) {
-    //     throw new Error(`Unknown time ${args[0]}`);
-    //   }
-    //
-    //   let scienceBonus = +args[1];
-    //   if (Number.isNaN(scienceBonus)) {
-    //     scienceBonus = 0;
-    //   }
-    //
-    //   const researchTime = 60;
-    //   const adjustedResearchTime = researchTime / (1 + scienceBonus / 100);
-    //   // const packs = ;
-    //   const costFormula = n => 1000 * 2 ** n;
-    //   const labsCount = Math.ceil(costFormula(0) * adjustedResearchTime / (minutes * 60));
-    //   // const packsRate = labsCount / researchTime;
-    //
-    //   console.log('Times');
-    //   for (let n = 0; n < 5; n++) {
-    //     console.log(`  Level ${n + 1}:`, (costFormula(n) * adjustedResearchTime / labsCount / 60).toFixed(0), 'minutes');
-    //   }
-    //
-    //   console.log('Labs required:', labsCount);
-    //
-    //   const researchRecipe: Recipe = {
-    //     name: 'Research',
-    //     time: adjustedResearchTime,
-    //     yield: 1,
-    //     source: 'lab',
-    //     requirements: [
-    //       { name: 'Red Science', amount: 1 },
-    //       { name: 'Green Science', amount: 1 },
-    //       { name: 'Blue Science', amount: 1 },
-    //       { name: 'Black Science', amount: 1 },
-    //       { name: 'Purple Science', amount: 1 },
-    //       { name: 'Orange Science', amount: 1 },
-    //     ],
-    //   };
-    //
-    //   const setup = findSetup(researchRecipe, labsCount, DEFAULT_PRODUCTION_SPEEDS);
-    //   console.log('Setup:');
-    //   console.log(displaySetup(setup));
-    //   console.log();
-    //   console.log('Raw requirements per minute:');
-    //   console.log(displayRawRequirements(setup, ['none', 'chem', 'mine', 'furnace', 'pump'], researchRecipe.name, DEFAULT_PRODUCTION_SPEEDS));
-    //   break;
-    // }
-
     case 'd': {
       const command = yargs.command(
         'd <recipe>',
@@ -519,22 +427,26 @@ function main() {
           })
           .option('labSpeed', {
             string: true,
-            default: coerceLabSpeed('max'),
+            // default: coerceLabSpeed('max'),
+            default: 'max',
             coerce: coerceLabSpeed,
           })
           .option('mineSpeed', {
             string: true,
-            default: coerceMineSpeed('max'),
+            // default: coerceMineSpeed('max'),
+            default: 'max',
             coerce: coerceMineSpeed,
           })
           .option('assemblerSpeed', {
             string: true,
-            default: coerceAssemblerSpeed('max'),
+            // default: coerceAssemblerSpeed('max'),
+            default: 'max',
             coerce: coerceAssemblerSpeed,
           })
           .option('furnaceSpeed', {
             string: true,
-            default: coerceFurnaceSpeed('max'),
+            // default: coerceFurnaceSpeed('max'),
+            default: 'max',
             coerce: coerceFurnaceSpeed,
           })
           .option('displayDependencyData', {
@@ -549,21 +461,21 @@ function main() {
       const args = command.argv;
 
       const speeds: ProductionSpeedMultipliers = {
-        pump: 1,
-        chem: 1,
-        assembler: args.assemblerSpeed,
-        lab: args.labSpeed,
-        mine: args.mineSpeed,
-        furnace: args.furnaceSpeed,
-        'rocket silo': 1,
+        pump: BASE_SPEED_MULTIPLIER,
+        chem: BASE_SPEED_MULTIPLIER,
+        assembler: args.assemblerSpeed as any as SpeedMultiplier,
+        lab: args.labSpeed as any as SpeedMultiplier,
+        mine: args.mineSpeed as any as SpeedMultiplier,
+        furnace: args.furnaceSpeed as any as SpeedMultiplier,
+        'rocket silo': BASE_SPEED_MULTIPLIER,
       };
 
-      const speedMultiplier = getSpeedMultiplier(args.recipe.source, speeds);
-      const maxCount = 'assemblers' in args.quantity
-        ? args.quantity.assemblers
-        : Math.ceil(args.quantity.perSecond * args.recipe.time / speedMultiplier / args.recipe.yield);
+      // const speedMultiplier = getSpeedMultiplier(args.recipe.source, speeds);
+      // const maxCount = 'assemblers' in args.quantity
+      //   ? args.quantity.assemblers
+      //   : Math.ceil(args.quantity.perSecond * args.recipe.time / speedMultiplier / args.recipe.yield);
       const rate = 'assemblers' in args.quantity
-        ? calculateRate(args.quantity.assemblers, args.recipe, speeds)
+        ? calculateTotalProductionRate(args.quantity.assemblers, args.recipe, speeds)
         : args.quantity.perSecond;
       const setup = findSetup(args.recipe, rate, speeds);
 
